@@ -63,8 +63,8 @@
         "Gowin synthesis of ternary_poly_mul reports <= 2,600 LUTs"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented 16 MAC + 16 Barrett reducers with down-counter control. DEPTH=4 hardcoded test and DEPTH=256 random tests (3 sets) verified against Python reference. All pass with make tb_ternary_poly_mul."
     },
     {
       "id": "US-005",
