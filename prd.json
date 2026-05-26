@@ -47,8 +47,8 @@
         "Gowin synthesis of ternary_mac alone reports <= 85 LUTs"
       ],
       "priority": 3,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "tb_ternary_mac.v created: 17 cases covering zero/+1/-1 weights, 4-cycle accumulation, signed overflow boundaries (2047/-2048), valid_in deassert, and invalid weight encoding (11). All PASS. sim/Makefile updated with tb_ternary_mac target. Ternary_mac.v already clean of synthesis attributes with DATA_WIDTH=12, ACC_WIDTH=32."
     },
     {
       "id": "US-004",
