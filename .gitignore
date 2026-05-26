@@ -31,3 +31,4 @@ scripts/**
 !scripts/*
 .env*
 opencode.json
+.aider*

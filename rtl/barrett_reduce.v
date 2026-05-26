@@ -5,13 +5,13 @@
 //
 // Reduces a 32-bit accumulator value to [0, 3328] using Barrett reduction.
 //
-// Barrett constant: B = floor(2^24 / 3329) = 5040
+// Barrett constant: B = floor(2^24 / 3329) = 5039
 // For input x:
 //   q_est = (x * B) >> 24
 //   r     = x - q_est * 3329
 //   if r >= 3329: r -= 3329  (at most one correction)
 //
-// Resource estimate: ~75 LUTs (two multipliers replaced by shifts + adds on LUT fabric)
+// Resource estimate: ~75 LUTs (constant multiplies optimised to shifts+adds)
 // Latency: 2 clock cycles (registered pipeline)
 
 `timescale 1ns / 1ps
@@ -26,12 +26,15 @@ module barrett_reduce (
 );
 
     localparam [31:0] MODULUS   = 32'd3329;
-    localparam [31:0] BARRETT_B = 32'd5040;
+    localparam [31:0] BARRETT_B = 32'd5039;
     localparam integer SHIFT    = 24;
 
     reg [31:0] stage1_x;
     reg [63:0] stage1_qraw;
     reg        stage1_valid;
+    reg [31:0] q_est;
+    reg [31:0] r;
+    reg [31:0] result;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -49,17 +52,16 @@ module barrett_reduce (
         if (!rst_n) begin
             data_out  <= 12'b0;
             valid_out <= 1'b0;
+            q_est     <= 32'b0;
+            r         <= 32'b0;
+            result    <= 32'b0;
         end else begin
             valid_out <= stage1_valid;
             if (stage1_valid) begin
-                reg [31:0] q_est;
-                reg [31:0] r;
-                q_est = stage1_qraw >> SHIFT;
-                r     = stage1_x - q_est * MODULUS;
-                if (r >= MODULUS)
-                    data_out <= r[11:0] - MODULUS[11:0];
-                else
-                    data_out <= r[11:0];
+                q_est  = stage1_qraw >> SHIFT;
+                r      = stage1_x - q_est * MODULUS;
+                result = (r >= MODULUS) ? (r - MODULUS) : r;
+                data_out <= result[11:0];
             end
         end
     end

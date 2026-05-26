@@ -2,7 +2,9 @@
   "project": "ternarycore-secure",
   "branchName": "ralph/phase1-secure-element",
   "description": "Track B Phase 1 — Ternary poly-mul accelerator + PicoRV32 skeleton on Tang Nano 9k",
-  "agents": ["fpga-rtl-engineer"],
+  "agents": [
+    "fpga-rtl-engineer"
+  ],
   "userStories": [
     {
       "id": "US-001",
@@ -30,8 +32,8 @@
         "make tb_barrett_reduce shows PASS"
       ],
       "priority": 2,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Verified: tb_barrett_reduce exhaustive sweep 0..6657 passes. B=5039 (correct floor value). All outputs equal input % 3329."
     },
     {
       "id": "US-003",
@@ -68,7 +70,9 @@
       "id": "US-005",
       "title": "Integrate PicoRV32 with Wishbone bus and UART peripheral",
       "description": "As an RTL engineer, I need PicoRV32 booting from ROM and printing over UART in simulation so firmware development can begin.",
-      "agents": ["firmware-c-engineer"],
+      "agents": [
+        "firmware-c-engineer"
+      ],
       "acceptanceCriteria": [
         "rtl/picorv32.v added (verbatim from https://github.com/YosysHQ/picorv32, tag v1.0)",
         "rtl/wb_uart.v: minimal Wishbone UART peripheral at 0x02000000, 115200 baud at 27 MHz",
@@ -86,7 +90,9 @@
       "id": "US-006",
       "title": "Gowin project file and synthesis clean run for Phase 1 RTL",
       "description": "As an FPGA engineer, I need a Gowin project that synthesises all Phase 1 RTL without errors so I can generate a bitstream for the Tang Nano 9k.",
-      "agents": ["fpga-vivado-integrator"],
+      "agents": [
+        "fpga-vivado-integrator"
+      ],
       "acceptanceCriteria": [
         "ternarycore-secure.gprj references: rtl/ternary_mac.v, rtl/barrett_reduce.v, rtl/ternary_poly_mul.v, rtl/picorv32.v, rtl/wb_uart.v, rtl/top.v",
         "constr/tangnano.cst and constr/tangnano.sdc included in project",
