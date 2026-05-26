@@ -6,9 +6,9 @@ VVP      = vvp
 RTL      = ../rtl
 TB       = ../tb
 
-.PHONY: all tb_barrett_reduce tb_ternary_poly_mul clean
+.PHONY: all tb_barrett_reduce tb_ternary_mac tb_ternary_poly_mul clean
 
-all: tb_barrett_reduce tb_ternary_poly_mul
+all: tb_barrett_reduce tb_ternary_mac tb_ternary_poly_mul
 	@echo "All testbenches complete."
 
 tb_barrett_reduce:
@@ -17,6 +17,13 @@ tb_barrett_reduce:
 		$(TB)/tb_barrett_reduce.v \
 		$(RTL)/barrett_reduce.v
 	$(VVP) tb_barrett_reduce.vvp
+
+tb_ternary_mac:
+	@echo "--- Ternary MAC ---"
+	$(IVERILOG) -o tb_ternary_mac.vvp \
+		$(TB)/tb_ternary_mac.v \
+		$(RTL)/ternary_mac.v
+	$(VVP) tb_ternary_mac.vvp
 
 tb_ternary_poly_mul:
 	@echo "--- Ternary Poly Mul ---"
