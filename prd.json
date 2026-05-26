@@ -83,8 +83,8 @@
         "AGENTS.md memory map table matches implemented Wishbone address assignments"
       ],
       "priority": 5,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "PicoRV32 integrated with Wishbone bus, wb_uart (115200 baud at 27MHz), boot ROM (4KB from firmware_words.hex), PSRAM (64KB), and ternary_poly_mul register interface at 0x03000000. Firmware compiled with riscv64-elf-gcc -march=rv32i -mabi=ilp32. tb_top verifies UART emits boot string. All 4 testbenches PASS."
     },
     {
       "id": "US-006",
