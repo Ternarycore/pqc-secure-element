@@ -26,3 +26,6 @@ firmware/build/
 .vscode/
 *.swp
 *.swo
+
+scripts/**
+!scripts/*
