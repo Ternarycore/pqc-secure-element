@@ -16,8 +16,13 @@ sim/*.fst
 firmware/*.elf
 firmware/*.bin
 firmware/*.hex
+!firmware/firmware_words.hex
 firmware/*.map
 firmware/build/
+firmware/*.o
+firmware/*.lst
+firmware/*.orig
+firmware/firmware.map
 
 # macOS
 .DS_Store

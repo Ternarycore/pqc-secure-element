@@ -6,9 +6,9 @@ VVP      = vvp
 RTL      = ../rtl
 TB       = ../tb
 
-.PHONY: all tb_barrett_reduce tb_ternary_mac tb_ternary_poly_mul clean
+.PHONY: all tb_barrett_reduce tb_ternary_mac tb_ternary_poly_mul tb_top clean
 
-all: tb_barrett_reduce tb_ternary_mac tb_ternary_poly_mul
+all: tb_barrett_reduce tb_ternary_mac tb_ternary_poly_mul tb_top
 	@echo "All testbenches complete."
 
 tb_barrett_reduce:
@@ -33,6 +33,15 @@ tb_ternary_poly_mul:
 		$(RTL)/ternary_mac.v \
 		$(RTL)/barrett_reduce.v
 	$(VVP) tb_ternary_poly_mul.vvp
+
+tb_top:
+	@echo "--- Top (PicoRV32 + UART boot) ---"
+	$(IVERILOG) -o tb_top.vvp \
+		$(TB)/tb_top.v \
+		$(RTL)/top.v \
+		$(RTL)/picorv32.v \
+		$(RTL)/wb_uart.v
+	$(VVP) tb_top.vvp
 
 clean:
 	rm -f *.vvp *.vcd *.lxt *.fst
