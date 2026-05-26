@@ -1,0 +1,102 @@
+{
+  "project": "ternarycore-secure",
+  "branchName": "ralph/phase1-secure-element",
+  "description": "Track B Phase 1 — Ternary poly-mul accelerator + PicoRV32 skeleton on Tang Nano 9k",
+  "agents": ["fpga-rtl-engineer"],
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Initialize git repo and verify iverilog smoke test passes",
+      "description": "As a developer, I need the repo properly initialized with git and a passing CI smoke test so the agentic loop has a clean baseline to build on.",
+      "acceptanceCriteria": [
+        "git init run in ternarycore-secure/, initial commit includes all scaffold files",
+        "cd sim && make tb_ternary_poly_mul runs without iverilog errors (stub output is acceptable, FAIL message expected until US-004)",
+        "cd sim && make tb_barrett_reduce compiles cleanly (FAIL expected until US-002 is complete)",
+        ".gitignore covers *.vvp, *.vcd, impl/, *.gprj.user"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "Completed by init commit"
+    },
+    {
+      "id": "US-002",
+      "title": "Implement and verify barrett_reduce module (mod 3329)",
+      "description": "As an RTL engineer, I need a correct Barrett reduction module so all 16 poly-mul MAC outputs are reduced to Z_3329 without using DSP blocks.",
+      "acceptanceCriteria": [
+        "rtl/barrett_reduce.v implements 2-stage pipelined Barrett reduction: B=5040, shift=24",
+        "tb_barrett_reduce exhaustive sweep 0..6657 passes: every output equals input % 3329",
+        "Gowin synthesis report shows barrett_reduce uses 0 DSP18 primitives",
+        "LUT count for one barrett_reduce instance <= 80 LUTs (budget is 75, allow 7% margin)",
+        "make tb_barrett_reduce shows PASS"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "Adapt ternary_mac.v for 12-bit PQC coefficients",
+      "description": "As an RTL engineer, I need ternary_mac verified at DATA_WIDTH=12 with no ILA/mark_debug attributes so it synthesises cleanly on Gowin GW1NR-9.",
+      "acceptanceCriteria": [
+        "rtl/ternary_mac.v has DATA_WIDTH=12 as default, ACC_WIDTH=32",
+        "Zero occurrences of mark_debug, keep, dont_touch, ILA, or (* ... *) synthesis attributes",
+        "New testbench tb/tb_ternary_mac.v verifies: zero weight, +1 weight, -1 weight, accumulation over 4 cycles, signed overflow boundary at 12-bit max (2047) and min (-2048)",
+        "make tb_ternary_mac shows PASS (add target to sim/Makefile)",
+        "Gowin synthesis of ternary_mac alone reports <= 85 LUTs"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "Implement ternary_poly_mul: 16 parallel MACs with Barrett reduction",
+      "description": "As an RTL engineer, I need the 16-channel ternary polynomial multiply accelerator fully implemented so PicoRV32 firmware can offload Kyber Polysub operations.",
+      "acceptanceCriteria": [
+        "rtl/ternary_poly_mul.v instantiates 16 ternary_mac units and 16 barrett_reduce units explicitly (no generate loop — Gowin tool compatibility)",
+        "valid_out pulses after DEPTH valid_in cycles; acc_out holds 16 × 12-bit reduced results",
+        "tb_ternary_poly_mul DEPTH=4 test: all-100 activations, alternating +1/-1 weights — expected result per channel computed in testbench and asserted",
+        "tb_ternary_poly_mul DEPTH=256 test added: 3 random polynomial multiplications verified against Python reference script verify/verify_poly_mul.py",
+        "make tb_ternary_poly_mul shows PASS for both DEPTH=4 and DEPTH=256",
+        "Gowin synthesis of ternary_poly_mul reports <= 2,600 LUTs"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "Integrate PicoRV32 with Wishbone bus and UART peripheral",
+      "description": "As an RTL engineer, I need PicoRV32 booting from ROM and printing over UART in simulation so firmware development can begin.",
+      "agents": ["firmware-c-engineer"],
+      "acceptanceCriteria": [
+        "rtl/picorv32.v added (verbatim from https://github.com/YosysHQ/picorv32, tag v1.0)",
+        "rtl/wb_uart.v: minimal Wishbone UART peripheral at 0x02000000, 115200 baud at 27 MHz",
+        "rtl/top.v updated: PicoRV32 + Wishbone arbiter + wb_uart + ternary_poly_mul register interface at 0x03000000",
+        "firmware/main.c compiles to firmware/firmware.hex with riscv32-unknown-elf-gcc -march=rv32i -mabi=ilp32",
+        "New testbench tb/tb_top.v: loads firmware.hex, runs simulation until UART emits 'TernaryCore-SE booting...' string, asserts PASS",
+        "make tb_top shows PASS",
+        "AGENTS.md memory map table matches implemented Wishbone address assignments"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "Gowin project file and synthesis clean run for Phase 1 RTL",
+      "description": "As an FPGA engineer, I need a Gowin project that synthesises all Phase 1 RTL without errors so I can generate a bitstream for the Tang Nano 9k.",
+      "agents": ["fpga-vivado-integrator"],
+      "acceptanceCriteria": [
+        "ternarycore-secure.gprj references: rtl/ternary_mac.v, rtl/barrett_reduce.v, rtl/ternary_poly_mul.v, rtl/picorv32.v, rtl/wb_uart.v, rtl/top.v",
+        "constr/tangnano.cst and constr/tangnano.sdc included in project",
+        "Gowin synthesis (impl/run.tcl or IDE) completes without ERROR-level messages",
+        "Post-synthesis LUT utilization <= 6,000 of 8,640 (70%) for Phase 1",
+        "top.v LED blink confirmed on hardware: all 6 LEDs cycle at ~0.6 Hz at 27 MHz"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+# sim/Makefile — TernaryCore Secure Element
+# Run from sim/ directory: cd sim && make all
+
+IVERILOG = iverilog
+VVP      = vvp
+RTL      = ../rtl
+TB       = ../tb
+
+.PHONY: all tb_barrett_reduce tb_ternary_poly_mul clean
+
+all: tb_barrett_reduce tb_ternary_poly_mul
+	@echo "All testbenches complete."
+
+tb_barrett_reduce:
+	@echo "--- Barrett Reduce ---"
+	$(IVERILOG) -o tb_barrett_reduce.vvp \
+		$(TB)/tb_barrett_reduce.v \
+		$(RTL)/barrett_reduce.v
+	$(VVP) tb_barrett_reduce.vvp
+
+tb_ternary_poly_mul:
+	@echo "--- Ternary Poly Mul ---"
+	$(IVERILOG) -o tb_ternary_poly_mul.vvp \
+		$(TB)/tb_ternary_poly_mul.v \
+		$(RTL)/ternary_poly_mul.v \
+		$(RTL)/ternary_mac.v \
+		$(RTL)/barrett_reduce.v
+	$(VVP) tb_ternary_poly_mul.vvp
+
+clean:
+	rm -f *.vvp *.vcd *.lxt *.fst

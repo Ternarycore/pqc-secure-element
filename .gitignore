@@ -1,0 +1,28 @@
+# Gowin IDE
+*.gprj.user
+impl/
+*.vg
+*.vm
+*.vo
+*.vr
+
+# Simulation
+sim/*.vvp
+sim/*.vcd
+sim/*.lxt
+sim/*.fst
+
+# Firmware build
+firmware/*.elf
+firmware/*.bin
+firmware/*.hex
+firmware/*.map
+firmware/build/
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+*.swp
+*.swo
