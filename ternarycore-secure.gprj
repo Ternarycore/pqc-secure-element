@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE GowinProject>
+<GowinProject Version="1.9.9">
+    <ProjectInfo>
+        <Device pn="GW1NR-LV9QN88PC6/I5" family="GW1NR">GW1NR-9C</Device>
+        <FileType>Verilog</FileType>
+        <TopModule>top</TopModule>
+        <SynthesisTool>GowinSynthesis</SynthesisTool>
+    </ProjectInfo>
+    <Options>
+        <Optimize>Area</Optimize>
+        <DualPurposePin>true</DualPurposePin>
+        <UseSSPIAsGPIO>true</UseSSPIAsGPIO>
+        <UseMSPIAsGPIO>true</UseMSPIAsGPIO>
+        <UseReadyAsGPIO>true</UseReadyAsGPIO>
+        <UseDoneAsGPIO>true</UseDoneAsGPIO>
+        <UseReconfignAsGPIO>true</UseReconfignAsGPIO>
+        <UseModeAsGPIO>true</UseModeAsGPIO>
+    </Options>
+    <FileList>
+        <File path="rtl/ternary_mac.v" type="verilog"/>
+        <File path="rtl/barrett_reduce.v" type="verilog"/>
+        <File path="rtl/ternary_poly_mul.v" type="verilog"/>
+        <File path="rtl/picorv32.v" type="verilog"/>
+        <File path="rtl/wb_uart.v" type="verilog"/>
+        <File path="rtl/top.v" type="verilog"/>
+    </FileList>
+    <ConstraintList>
+        <File path="constr/tangnano.cst" type="cst"/>
+        <File path="constr/tangnano.sdc" type="sdc"/>
+    </ConstraintList>
+</GowinProject>

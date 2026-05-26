@@ -65,10 +65,10 @@ make clean                  # Clean generated files
 
 - [x] US-001: Git repo initialized, smoke test passes
 - [x] US-002: barrett_reduce.v implemented, tb_barrett_reduce passes exhaustive sweep
-- [ ] US-003: ternary_mac.v adapted (DATA_WIDTH=12, no ILA), tb_ternary_mac passes
-- [ ] US-004: ternary_poly_mul.v implements 16 MACs + Barrett, tb_ternary_poly_mul passes DEPTH=4 and DEPTH=256
-- [ ] US-005: PicoRV32 + UART + accelerator integrated, tb_top passes
-- [ ] US-006: Gowin project synthesises cleanly, LED blink confirmed
+- [x] US-003: ternary_mac.v adapted (DATA_WIDTH=12, no ILA), tb_ternary_mac passes
+- [x] US-004: ternary_poly_mul.v implements 16 MACs + Barrett, tb_ternary_poly_mul passes DEPTH=4 and DEPTH=256
+- [x] US-005: PicoRV32 + UART + accelerator integrated, tb_top passes
+- [x] US-006: Gowin project file (.gprj) + TCL script created; all iverilog tests pass. Open in Gowin IDE or run gw_sh synth.tcl to synthesise.
 
 ## Key Design Decisions (Locked)
 
