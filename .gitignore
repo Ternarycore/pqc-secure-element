@@ -2,15 +2,22 @@
 *.gprj.user
 impl/
 # The IDE creates a ternarycore-secure/ subfolder with src/ copies of rtl/ files
-# and its own impl/ + temp/ build dirs — none of these belong in source control
-ternarycore-secure/src/
+# and its own impl/ + temp/ build dirs — none of these belong in source control.
+# Exception: ternarycore-secure.cst must be tracked so constraints survive a clone.
+# Exception: ternarycore-secure/firmware/ is excluded (copy made by scripts/setup_gowin_project.sh).
+ternarycore-secure/src/*
+!ternarycore-secure/src/ternarycore-secure.cst
 ternarycore-secure/impl/
 ternarycore-secure/temp/
+ternarycore-secure/firmware/
 ternarycore-secure_process_config.json
 *.vg
 *.vm
 *.vo
 *.vr
+
+# Misc
+get-pip.py
 
 # Simulation
 sim/*.vvp
