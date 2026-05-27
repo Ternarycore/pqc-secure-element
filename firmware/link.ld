@@ -46,5 +46,5 @@ SECTIONS
         __bss_end = .;
     } > RAM
 
-    _stack_top = ORIGIN(RAM) + LENGTH(RAM);
+    _stack_top = 0x10001FFC;
 }

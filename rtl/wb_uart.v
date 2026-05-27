@@ -38,6 +38,8 @@ module wb_uart (
     reg        tx_busy;
     reg        tx_start;
     reg        rx_ready_clr;
+    reg [7:0]  rx_data;
+    reg        rx_ready;
 
     always @(posedge wb_clk or negedge wb_rst_n) begin
         if (!wb_rst_n) begin
@@ -118,8 +120,6 @@ module wb_uart (
     reg [7:0]  rx_baud_cnt;
     reg [3:0]  rx_bit_cnt;
     reg [7:0]  rx_shift;
-    reg [7:0]  rx_data;
-    reg        rx_ready;
 
     always @(posedge wb_clk or negedge wb_rst_n) begin
         if (!wb_rst_n) begin

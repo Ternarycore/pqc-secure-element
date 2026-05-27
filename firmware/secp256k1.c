@@ -11,7 +11,7 @@
 
 #include "secp256k1.h"
 #include "sha256.h"
-#include <string.h>
+#include "string.h"
 #include <stdint.h>
 
 // ─── 256-bit field element (8 x 32-bit words, big-endian limbs) ────────────
@@ -46,7 +46,8 @@ static void fe_zero(fe_t *a) { memset(a->w, 0, 32); }
 static void fe_one(fe_t *a)  { fe_zero(a); a->w[7] = 1; }
 static void fe_copy(fe_t *d, const fe_t *s) { memcpy(d->w, s->w, 32); }
 static int  fe_is_zero(const fe_t *a) {
-    for (int i = 0; i < 8; i++) if (a->w[i]) return 0; return 1;
+    for (int i = 0; i < 8; i++) if (a->w[i]) return 0;
+    return 1;
 }
 static int fe_cmp(const fe_t *a, const fe_t *b) {
     for (int i = 0; i < 8; i++) {
@@ -133,41 +134,7 @@ static void fe_mul(fe_t *c, const fe_t *a, const fe_t *b) {
     uint32_t t[16];
     u256_mul512(a->w, b->w, t);
 
-    // Reduce: t = hi * (2^32 + 977) + lo
-    // where hi = t[0..7], lo = t[8..15]
-    // Iteratively reduce the high half.
-    // We do two passes; the overflow after each pass is at most 1 word wide.
-    for (int pass = 0; pass < 2; pass++) {
-        // Add hi * 977 into lo (starting from t[15] up)
-        uint64_t carry = 0;
-        for (int i = 7; i >= 0; i--) {
-            uint64_t v = (uint64_t)t[i] * 977 + t[8+i] + carry;
-            t[8+i] = (uint32_t)v;
-            carry  = v >> 32;
-        }
-        // Add hi * 2^32 (shift hi left 1 word) into lo
-        uint64_t carry2 = carry;
-        for (int i = 7; i >= 0; i--) {
-            uint64_t v = (uint64_t)t[8+i] + t[i] * (uint64_t)(i > 0 ? 0 : 0) + carry2;
-            // Simpler: just shift t[i] into t[i+1..8+i-1] position (add hi<<32)
-            (void)v;
-        }
-        // Cleaner: treat t[0..7] as the high 256 bits.
-        // t_lo = t[8..15], t_hi = t[0..7]
-        // Result = t_lo + t_hi * (2^32 + 977)
-        //        = t_lo + (t_hi << 32) + t_hi * 977
-        // (t_hi << 32) shifts all hi words into lo by 1 position
-        carry = 0;
-        for (int i = 15; i >= 1; i--) {
-            uint64_t v = (uint64_t)t[i] + (uint64_t)t[i-1] * 977 + carry;
-            // Hmm this is getting complicated. Let me just do it word by word.
-            (void)v;
-        }
-        // Actually use the straightforward approach below.
-        break; // exit, use the approach below instead
-    }
-
-    // Simple correct approach: Barrett reduction using the special prime structure.
+    // Barrett reduction using the special prime structure.
     // p = 2^256 - 2^32 - 977
     // For 512-bit t = t_hi * 2^256 + t_lo,
     //   t mod p = t_lo + t_hi * (2^32 + 977)  [then reduce if >= p]
@@ -246,57 +213,26 @@ static void sc_add(sc_t *c, const sc_t *a, const sc_t *b) {
         u256_sub_inplace(c->w, FN.w);
 }
 
+// 2^256 mod n  =  ~n + 1  (big-endian 8-word array)
+static const uint32_t POW256_MOD_N[8] = {
+    0x00000000, 0x00000000, 0x00000000, 0x00000001,
+    0x45512319, 0x50B75FC4, 0x402DA173, 0x2FC9BEBF
+};
+
 // Scalar multiply mod n: c = a * b mod n
+// Uses: result = lo + hi * (2^256 mod n)  [mod n]
 static void sc_mul_mod_n(sc_t *c, const sc_t *a, const sc_t *b) {
     uint32_t t[16];
     u256_mul512(a->w, b->w, t);
-    // Barrett reduction mod n
-    // n is close to 2^256, so same trick:
-    // n = 2^256 - k where k = 2^128 - ... (not as clean as p)
-    // Use iterative subtraction for simplicity (acceptable since we call this rarely)
+
     uint32_t lo[8], hi[8];
     memcpy(hi, t,     32);
     memcpy(lo, t + 8, 32);
-    // lo = t[8..15] + hi * (2^256 - n) mod n
-    // 2^256 - n = 0x14551231950B75FC4402DA1732FC9BEBF
-    static const uint32_t TWO256_MINUS_N[8] = {
-        0x00000001, 0x45512319, 0x50B75FC4, 0x402DA173,
-        0x2FC9BEBF, 0x50D94BF0, 0x402DA173, 0x2FC9BFC0  // placeholder
-    };
-    // Approximate: just do schoolbook with big-integer arithmetic
-    // For a real implementation use Montgomery form; here we do 2 reduction passes
-    // using the simple identity: 2^256 ≡ n - FN mod n => 2^256 ≡ (FN complement)
-    // For Phase 2 correctness, use simple reduction:
-    (void)TWO256_MINUS_N;
 
-    // Compute hi * (2^256 mod n) + lo  by double-and-add
-    // 2^256 mod n: compute it
-    static uint32_t pow256_mod_n[8] = {0}; // computed once below
-    static int pow256_computed = 0;
-    if (!pow256_computed) {
-        // 2^256 mod n: start with 1 and double 256 times mod n
-        pow256_mod_n[7] = 1;
-        for (int i = 0; i < 256; i++) {
-            // double: pow256_mod_n = pow256_mod_n * 2 mod n
-            uint64_t carry = 0;
-            for (int j = 7; j >= 0; j--) {
-                uint64_t v = (uint64_t)pow256_mod_n[j] * 2 + carry;
-                pow256_mod_n[j] = (uint32_t)v;
-                carry = v >> 32;
-            }
-            sc_t tmp; memcpy(&tmp, pow256_mod_n, 32); sc_reduce(&tmp);
-            memcpy(pow256_mod_n, &tmp, 32);
-        }
-        pow256_computed = 1;
-    }
-
-    // result = lo + hi * pow256_mod_n  (mod n)
-    // Use double-and-add over hi bits
+    // result = hi * POW256_MOD_N  via 256-bit double-and-add (MSB first)
     sc_t result; memset(&result, 0, 32);
-    result.w[7] = 0; // zero
     for (int word = 0; word < 8; word++) {
         for (int bit = 31; bit >= 0; bit--) {
-            // result = result * 2 mod n
             uint64_t carry = 0;
             for (int j = 7; j >= 0; j--) {
                 uint64_t v = (uint64_t)result.w[j] * 2 + carry;
@@ -304,15 +240,14 @@ static void sc_mul_mod_n(sc_t *c, const sc_t *a, const sc_t *b) {
             }
             sc_reduce(&result);
             if ((hi[word] >> bit) & 1) {
-                u256_add_inplace(result.w, pow256_mod_n);
+                u256_add_inplace(result.w, POW256_MOD_N);
                 sc_reduce(&result);
             }
         }
     }
-    // result += lo
     u256_add_inplace(result.w, lo);
     sc_reduce(&result);
-    fe_copy((fe_t*)c, (fe_t*)&result);
+    memcpy(c->w, result.w, 32);
 }
 
 // ─── Elliptic curve point (Jacobian coordinates) ────────────────────────────

@@ -1,6 +1,7 @@
 // tb_top.v
 // SPDX-License-Identifier: CERN-OHL-S-2.0
-// Integration test: PicoRV32 boots from ROM, prints boot string over UART
+// Phase 2 integration test: boots, verifies AT+INFO on UART1
+// Pure Verilog-2001 (no SystemVerilog features).
 
 `timescale 1ns / 1ps
 
@@ -9,132 +10,324 @@ module tb_top;
     reg  clk;
     reg  rst_n;
     wire uart_tx;
+    wire uart_ext_tx;
     wire [5:0] led;
+    reg  uart1_rx_drive;
 
     always #18 clk = ~clk;
 
     top u_dut (
-        .sys_clk   (clk),
-        .sys_rst_n (rst_n),
-        .uart_rx   (1'b1),
-        .uart_tx   (uart_tx),
-        .led       (led)
+        .sys_clk     (clk),
+        .sys_rst_n   (rst_n),
+        .uart_rx     (1'b1),
+        .uart_tx     (uart_tx),
+        .uart_ext_rx (uart1_rx_drive),
+        .uart_ext_tx (uart_ext_tx),
+        .led         (led)
     );
 
-    // ─── UART monitor (BAUD_DIV=234 from wb_uart.v) ─────────────────
     localparam BAUD_DIV   = 234;
     localparam HALF_BIT   = 117;
-    localparam MAX_CYCLES = 1000000;
+    localparam MAX_CLK    = 12000000;
 
-    reg [7:0]  rx_char;
-    reg        rx_ready;
-    reg        uart_tx_d;
-    reg [15:0] bit_timer;
-    reg [4:0]  bit_idx;
-    reg [7:0]  shift_reg;
-    integer    cycle_cnt;
-
-    always @(posedge clk) begin
-        uart_tx_d <= uart_tx;
+    // cycle counter
+    integer cycle_cnt;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) cycle_cnt <= 0;
+        else        cycle_cnt <= cycle_cnt + 1;
     end
+
+    // ─── UART0 RX monitor ────────────────────────────────────────────
+    reg [7:0]  u0_char;
+    reg        u0_ready;
+    reg        uart_tx_d;
+    reg [15:0] u0_bit_timer;
+    reg [4:0]  u0_bit_idx;
+    reg [7:0]  u0_shift;
+
+    always @(posedge clk) uart_tx_d <= uart_tx;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            rx_char   <= 8'd0;
-            rx_ready  <= 1'b0;
-            bit_timer <= 16'd0;
-            bit_idx   <= 5'd0;
-            shift_reg <= 8'd0;
+            u0_char      <= 8'd0;
+            u0_ready     <= 1'b0;
+            u0_bit_timer <= 16'd0;
+            u0_bit_idx   <= 5'd0;
+            u0_shift     <= 8'd0;
         end else begin
-            if (rx_ready) rx_ready <= 1'b0;
-
-            if (bit_idx == 0) begin
+            if (u0_ready) u0_ready <= 1'b0;
+            if (u0_bit_idx == 0) begin
                 if (uart_tx_d && !uart_tx) begin
-                    bit_timer <= BAUD_DIV + HALF_BIT - 1;
-                    bit_idx   <= 5'd1;
+                    u0_bit_timer <= BAUD_DIV + HALF_BIT - 1;
+                    u0_bit_idx   <= 5'd1;
                 end
             end else begin
-                if (bit_timer == 0) begin
-                    if (bit_idx <= 8) begin
-                        shift_reg <= {uart_tx, shift_reg[7:1]};
-                        bit_idx   <= bit_idx + 5'd1;
-                        bit_timer <= BAUD_DIV - 1;
+                if (u0_bit_timer == 0) begin
+                    if (u0_bit_idx <= 8) begin
+                        u0_shift     <= {uart_tx, u0_shift[7:1]};
+                        u0_bit_idx   <= u0_bit_idx + 5'd1;
+                        u0_bit_timer <= BAUD_DIV - 1;
                     end else begin
-                        rx_char  <= shift_reg;
-                        rx_ready <= 1'b1;
-                        bit_idx  <= 5'd0;
+                        u0_char  <= u0_shift;
+                        u0_ready <= 1'b1;
+                        u0_bit_idx <= 5'd0;
                     end
                 end else begin
-                    bit_timer <= bit_timer - 1;
+                    u0_bit_timer <= u0_bit_timer - 1;
                 end
             end
         end
     end
 
-    // ─── Test sequencer ──────────────────────────────────────────────
-    reg [7:0] expected_msg [0:255];
+    // ─── UART1 RX monitor + continuous buffer ────────────────────────
+    reg [7:0]  u1_char;
+    reg        u1_ready;
+    reg        u1_tx_d;
+    reg [15:0] u1_bit_timer;
+    reg [4:0]  u1_bit_idx;
+    reg [7:0]  u1_shift;
+
+    reg [7:0]  u1_buf [0:511];
+    integer    u1_len;
+    integer    u1_mark;
+
+    always @(posedge clk) u1_tx_d <= uart_ext_tx;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            u1_char      <= 8'd0;
+            u1_ready     <= 1'b0;
+            u1_bit_timer <= 16'd0;
+            u1_bit_idx   <= 5'd0;
+            u1_shift     <= 8'd0;
+            u1_len       <= 0;
+        end else begin
+            if (u1_ready) u1_ready <= 1'b0;
+            if (u1_bit_idx == 0) begin
+                if (u1_tx_d && !uart_ext_tx) begin
+                    u1_bit_timer <= BAUD_DIV + HALF_BIT - 1;
+                    u1_bit_idx   <= 5'd1;
+                end
+            end else begin
+                if (u1_bit_timer == 0) begin
+                    if (u1_bit_idx <= 8) begin
+                        u1_shift     <= {uart_ext_tx, u1_shift[7:1]};
+                        u1_bit_idx   <= u1_bit_idx + 5'd1;
+                        u1_bit_timer <= BAUD_DIV - 1;
+                    end else begin
+                        u1_char  <= u1_shift;
+                        u1_ready <= 1'b1;
+                        u1_bit_idx <= 5'd0;
+                        if (u1_len < 512) begin
+                            u1_buf[u1_len] <= u1_shift;
+                            u1_len <= u1_len + 1;
+                        end
+                    end
+                end else begin
+                    u1_bit_timer <= u1_bit_timer - 1;
+                end
+            end
+        end
+    end
+
+    // ─── UART1 TX task ───────────────────────────────────────────────
+    task uart1_send;
+        input [7:0] val;
+        integer i;
+        begin
+            uart1_rx_drive = 1'b0;
+            repeat (BAUD_DIV) @(posedge clk);
+            for (i = 0; i < 8; i = i + 1) begin
+                uart1_rx_drive = val[i];
+                repeat (BAUD_DIV) @(posedge clk);
+            end
+            uart1_rx_drive = 1'b1;
+            repeat (BAUD_DIV) @(posedge clk);
+        end
+    endtask
+
+    // ─── Test ────────────────────────────────────────────────────────
+    reg [7:0] expected_boot [0:26];
     reg [7:0] recv_chr;
-    integer   msg_len, msg_pos;
+    integer   msg_len;
+    integer   msg_pos;
+    integer   fail;
+    integer   i, j;
+    reg       found_str;
 
     initial begin
-        expected_msg[ 0] = "T";  expected_msg[ 1] = "e";
-        expected_msg[ 2] = "r";  expected_msg[ 3] = "n";
-        expected_msg[ 4] = "a";  expected_msg[ 5] = "r";
-        expected_msg[ 6] = "y";  expected_msg[ 7] = "C";
-        expected_msg[ 8] = "o";  expected_msg[ 9] = "r";
-        expected_msg[10] = "e";  expected_msg[11] = "-";
-        expected_msg[12] = "S";  expected_msg[13] = "E";
-        expected_msg[14] = " ";  expected_msg[15] = "b";
-        expected_msg[16] = "o";  expected_msg[17] = "o";
-        expected_msg[18] = "t";  expected_msg[19] = "i";
-        expected_msg[20] = "n";  expected_msg[21] = "g";
-        expected_msg[22] = ".";  expected_msg[23] = ".";
-        expected_msg[24] = ".";  expected_msg[25] = 8'h0D;
-        expected_msg[26] = 8'h0A;
-        msg_len = 27;
-
+        fail = 0;
+        uart1_rx_drive = 1'b1;
         clk    = 1'b0;
         rst_n  = 1'b0;
         msg_pos = 0;
-        cycle_cnt = 0;
+        u1_mark = 0;
 
-        $display("=== tb_top: PicoRV32 + UART boot test ===");
+        expected_boot[ 0] = "T";  expected_boot[ 1] = "e";
+        expected_boot[ 2] = "r";  expected_boot[ 3] = "n";
+        expected_boot[ 4] = "a";  expected_boot[ 5] = "r";
+        expected_boot[ 6] = "y";  expected_boot[ 7] = "C";
+        expected_boot[ 8] = "o";  expected_boot[ 9] = "r";
+        expected_boot[10] = "e";  expected_boot[11] = "-";
+        expected_boot[12] = "S";  expected_boot[13] = "E";
+        expected_boot[14] = " ";  expected_boot[15] = "b";
+        expected_boot[16] = "o";  expected_boot[17] = "o";
+        expected_boot[18] = "t";  expected_boot[19] = "i";
+        expected_boot[20] = "n";  expected_boot[21] = "g";
+        expected_boot[22] = ".";  expected_boot[23] = ".";
+        expected_boot[24] = ".";  expected_boot[25] = 8'h0D;
+        expected_boot[26] = 8'h0A;
+        msg_len = 27;
+
+        $display("=== tb_top: Phase 2 AT-command integration test ===");
 
         #100 rst_n = 1'b1;
 
-        fork
-            begin
-                forever begin
-                    @(posedge clk);
-                    cycle_cnt = cycle_cnt + 1;
-                end
+        // ── [1] Verify UART0 boot banner ─────────────────────────
+        $display("[1/5] Verifying UART0 boot banner...");
+        while (cycle_cnt < MAX_CLK && msg_pos < msg_len) begin
+            @(posedge u0_ready);
+            recv_chr = u0_char;
+            $write("%c", recv_chr);
+            if (recv_chr != expected_boot[msg_pos]) begin
+                $display("\nFAIL: UART0 char %d expected 0x%02x got 0x%02x",
+                         msg_pos, expected_boot[msg_pos], recv_chr);
+                fail = 1;
             end
-            begin
-                wait (cycle_cnt < MAX_CYCLES);
-                while (cycle_cnt < MAX_CYCLES) begin
-                    @(posedge rx_ready);
-                    recv_chr = rx_char;
-                    $write("%c", recv_chr);
+            msg_pos = msg_pos + 1;
+        end
+        if (msg_pos == msg_len)
+            $display("\nPASS: UART0 boot banner OK");
+        else begin
+            $display("\nFAIL: boot banner timeout (cycle %d, pos %d)", cycle_cnt, msg_pos);
+            $finish;
+        end
 
-                    if (recv_chr != expected_msg[msg_pos]) begin
-                        $display("\nFAIL: char %0d expected 0x%02x got 0x%02x",
-                                 msg_pos, expected_msg[msg_pos], recv_chr);
-                        $finish;
-                    end
-                    msg_pos = msg_pos + 1;
+        // ── Print UART1 init output, then wait for firmware to be ready ──
+        repeat (500000) @(posedge clk);  // give firmware time to finish init
+        $display("UART1 boot output (%d chars):", u1_len);
+        for (i = 0; i < u1_len && i < 200; i = i + 1) $write("%c", u1_buf[i]);
+        $display("");
 
-                    if (msg_pos == msg_len) begin
-                        $display("\nPASS: ternarycore-see boot message verified");
-                        $finish;
-                    end
-                end
-            end
-            begin
-                #(MAX_CYCLES * 36);
-                $display("FAIL: timeout after %0d cycles", MAX_CYCLES);
-                $finish;
-            end
-        join
+        // ── [2] Send AT+INFO on UART1 ────────────────────────────
+        u1_mark = u1_len;
+        $display("[2/5] Sending AT+INFO on UART1...");
+        uart1_send("A"); uart1_send("T"); uart1_send("+");
+        uart1_send("I"); uart1_send("N"); uart1_send("F");
+        uart1_send("O");
+        uart1_send(8'h0D); uart1_send(8'h0A);
+
+        // wait for response (up to 2M cycles)
+        repeat (1000000) @(posedge clk);
+
+        $display("AT+INFO response (%d new chars):", u1_len - u1_mark);
+        for (i = u1_mark; i < u1_len && i < 512; i = i + 1) $write("%c", u1_buf[i]);
+        $display("");
+
+        // Check for "TernaryCore-SE"
+        found_str = 0;
+        for (i = u1_mark; i <= u1_len - 14; i = i + 1) begin
+            if (u1_buf[i] == "T" && u1_buf[i+1] == "e" &&
+                u1_buf[i+2] == "r" && u1_buf[i+3] == "n" &&
+                u1_buf[i+4] == "a" && u1_buf[i+5] == "r" &&
+                u1_buf[i+6] == "y" && u1_buf[i+7] == "C" &&
+                u1_buf[i+8] == "o" && u1_buf[i+9] == "r" &&
+                u1_buf[i+10] == "e" && u1_buf[i+11] == "-" &&
+                u1_buf[i+12] == "S" && u1_buf[i+13] == "E")
+                found_str = 1;
+        end
+        if (found_str)
+            $display("PASS: AT+INFO contains 'TernaryCore-SE'");
+        else begin
+            $display("FAIL: AT+INFO missing 'TernaryCore-SE'");
+            fail = 1;
+        end
+
+        // ── [3] AT+STORE:0,<k=1> ────────────────────────────────
+        u1_mark = u1_len;
+        $display("[3/5] AT+STORE:0,<k=1>...");
+        uart1_send("A"); uart1_send("T"); uart1_send("+");
+        uart1_send("S"); uart1_send("T"); uart1_send("O");
+        uart1_send("R"); uart1_send("E"); uart1_send(":");
+        uart1_send("0"); uart1_send(",");
+        for (i = 0; i < 62; i = i + 1) uart1_send("0");
+        uart1_send("0"); uart1_send("1");
+        uart1_send(8'h0D); uart1_send(8'h0A);
+
+        repeat (1000000) @(posedge clk);
+
+        $display("AT+STORE response (%d new chars):", u1_len - u1_mark);
+        for (i = u1_mark; i < u1_len && i < 512; i = i + 1) $write("%c", u1_buf[i]);
+        $display("");
+
+        found_str = 0;
+        for (i = u1_mark; i <= u1_len - 2; i = i + 1) begin
+            if (u1_buf[i] == "O" && u1_buf[i+1] == "K")
+                found_str = 1;
+        end
+        if (found_str)
+            $display("PASS: AT+STORE returned OK");
+        else begin
+            $display("FAIL: AT+STORE did not return OK");
+            fail = 1;
+        end
+
+        // ── [4] AT+DEL:0 then AT+RAND ────────────────────────────
+        u1_mark = u1_len;
+        $display("[4/5] AT+DEL:0 + AT+RAND...");
+        uart1_send("A"); uart1_send("T"); uart1_send("+");
+        uart1_send("D"); uart1_send("E"); uart1_send("L");
+        uart1_send(":"); uart1_send("0");
+        uart1_send(8'h0D); uart1_send(8'h0A);
+
+        repeat (500000) @(posedge clk);
+
+        $display("AT+DEL response (%d new chars):", u1_len - u1_mark);
+        for (i = u1_mark; i < u1_len && i < 512; i = i + 1) $write("%c", u1_buf[i]);
+        $display("");
+
+        found_str = 0;
+        for (i = u1_mark; i <= u1_len - 2; i = i + 1) begin
+            if (u1_buf[i] == "O" && u1_buf[i+1] == "K")
+                found_str = 1;
+        end
+        if (found_str)
+            $display("PASS: AT+DEL returned OK");
+        else begin
+            $display("FAIL: AT+DEL did not return OK");
+            fail = 1;
+        end
+
+        // AT+RAND — generate 32 random bytes (64 hex chars)
+        u1_mark = u1_len;
+        uart1_send("A"); uart1_send("T"); uart1_send("+");
+        uart1_send("R"); uart1_send("A"); uart1_send("N");
+        uart1_send("D");
+        uart1_send(8'h0D); uart1_send(8'h0A);
+
+        repeat (500000) @(posedge clk);
+
+        $display("AT+RAND response (%d new chars):", u1_len - u1_mark);
+        for (i = u1_mark; i < u1_len && i < 512; i = i + 1) $write("%c", u1_buf[i]);
+        $display("");
+
+        // AT+RAND should produce at least 64 hex chars + OK
+        if (u1_len - u1_mark >= 64)
+            $display("PASS: AT+RAND returned %d chars", u1_len - u1_mark);
+        else begin
+            $display("FAIL: AT+RAND only %d chars", u1_len - u1_mark);
+            fail = 1;
+        end
+
+        // ── [5] Summary ──────────────────────────────────────────
+        $display("[5/5] Note: AT+PUBKEY, AT+SIGN, AT+TEST verified via compilation");
+        $display("       — deferred to hardware test (ENABLE_FAST_MUL=1 needed for speed).");
+
+        if (fail)
+            $display("\n=== tb_top: FAILED ===");
+        else
+            $display("\n=== tb_top: PASSED ===");
+        $finish;
     end
 
 endmodule

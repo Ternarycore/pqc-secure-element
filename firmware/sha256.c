@@ -1,7 +1,7 @@
 // sha256.c — Compact SHA-256 (FIPS 180-4)
 // SPDX-License-Identifier: CERN-OHL-S-2.0
 #include "sha256.h"
-#include <string.h>
+#include "string.h"
 
 static const uint32_t K[64] = {
     0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,
