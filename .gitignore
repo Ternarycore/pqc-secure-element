@@ -1,6 +1,12 @@
-# Gowin IDE
+# Gowin IDE — project output and IDE-managed source copies
 *.gprj.user
 impl/
+# The IDE creates a ternarycore-secure/ subfolder with src/ copies of rtl/ files
+# and its own impl/ + temp/ build dirs — none of these belong in source control
+ternarycore-secure/src/
+ternarycore-secure/impl/
+ternarycore-secure/temp/
+ternarycore-secure_process_config.json
 *.vg
 *.vm
 *.vo

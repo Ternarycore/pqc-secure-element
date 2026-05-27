@@ -88,7 +88,9 @@ module top #(
     );
 
     // ─── Boot ROM (4 KB at 0x00000000) ──────────────────────────────
-    reg  [31:0] rom [0:1023];
+    // Gowin: force BSRAM inference.  Without this attribute the synthesiser
+    // maps the array to ~32 K DFFs which exhausts the device (limit 6693).
+    (* syn_ramstyle = "block_ram" *) reg [31:0] rom [0:1023];
     reg  [31:0] rom_rdata;
 
     integer rom_init;
@@ -103,14 +105,17 @@ module top #(
             rom_rdata <= rom[cpu_mem_addr[11:2]];
     end
 
-    // ─── PSRAM (64 KB at 0x10000000) ──────────────────────────────
-    reg  [31:0] psram [0:16383];
+    // ─── SRAM (8 KB at 0x10000000) ────────────────────────────────
+    // Sized to fit comfortably in available BSRAM (26 × 18 Kbits = ~58 KB).
+    // ROM takes 2 BSRAMs; 8 KB SRAM takes 4 more — 20 remain for Phase 2.
+    // External PSRAM SPI controller is a Phase 2 item.
+    // NOTE: address width drops from 14 to 11 bits (2048 words = 8 KB).
+    (* syn_ramstyle = "block_ram" *) reg [31:0] psram [0:2047];
     reg  [31:0] psram_rdata;
     wire        psram_sel = cpu_mem_valid && (cpu_mem_addr[31:16] == 16'h1000);
     wire        psram_we  = psram_sel && (|cpu_mem_wstrb);
-    wire [13:0] psram_addr = cpu_mem_addr[15:2];
+    wire [10:0] psram_addr = cpu_mem_addr[12:2];
 
-    integer pi;
     always @(posedge clk) begin
         if (psram_we) begin
             if (cpu_mem_wstrb[0]) psram[psram_addr][ 7: 0] <= cpu_mem_wdata[ 7: 0];
