@@ -1,30 +1,42 @@
-// startup.S — Minimal crt0 for PicoRV32 bare-metal
+// startup.S — crt0 for PicoRV32 bare-metal (Phase 2)
 // SPDX-License-Identifier: CERN-OHL-S-2.0
 
 .section .text.startup
 .globl _start
 _start:
-    // Set stack pointer to top of PSRAM (0x10000000 + 64KB)
-    lui sp, %hi(0x10010000)
-    addi sp, sp, %lo(0x10010000)
+    // Stack pointer: top of 8 KB SRAM (0x10000000 + 8192 - 4)
+    li   sp, 0x10001FFC
 
-    // Clear .bss
-    lui t0, %hi(__bss_start)
-    addi t0, t0, %lo(__bss_start)
-    lui t1, %hi(__bss_end)
-    addi t1, t1, %lo(__bss_end)
-1:
-    bge t0, t1, 2f
-    sw zero, 0(t0)
+    // Copy .data section from ROM load address (_etext) to RAM (_data_start.._data_end)
+    la   t0, _etext
+    la   t1, _data_start
+    la   t2, _data_end
+.Lcopy_data:
+    bge  t1, t2, .Lcopy_done
+    lw   t3, 0(t0)
+    sw   t3, 0(t1)
     addi t0, t0, 4
-    j 1b
-2:
+    addi t1, t1, 4
+    j    .Lcopy_data
+.Lcopy_done:
 
-    // Jump to main
-    jal zero, main
+    // Zero .bss
+    la   t0, __bss_start
+    la   t1, __bss_end
+.Lzero_bss:
+    bge  t0, t1, .Lbss_done
+    sw   zero, 0(t0)
+    addi t0, t0, 4
+    j    .Lzero_bss
+.Lbss_done:
+
+    call main
+
+    // main() should never return — spin here if it does
+.Lhalt:
+    j .Lhalt
 
 .section .text.trap
 .globl trap_entry
 trap_entry:
-    // Simple trap handler: infinite loop
     j trap_entry

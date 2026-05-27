@@ -21,15 +21,14 @@ IO_PORT "uart_rx"  PULL_MODE=UP IO_TYPE=LVCMOS33;
 IO_LOC "uart_tx"   17;
 IO_PORT "uart_tx"  PULL_MODE=UP IO_TYPE=LVCMOS33;
 
-// Phase 2 — Secondary UART for ESP32-S3 host connection (header-accessible pins)
+// Phase 2 — Secondary UART for ESP32-S3 AT-command link (header-accessible pins)
 // Wiring: ESP32-S3 GPIO16 (TX) → Tang header pin 39 (uart_ext_rx)
 //         ESP32-S3 GPIO17 (RX) ← Tang header pin 38 (uart_ext_tx)
 //         GND shared (3.3 V logic, no level shifting needed)
-// Uncomment when the Phase 2 UART module is instantiated in top.v:
-// IO_LOC "uart_ext_tx"  38;
-// IO_PORT "uart_ext_tx" PULL_MODE=NONE IO_TYPE=LVCMOS33;
-// IO_LOC "uart_ext_rx"  39;
-// IO_PORT "uart_ext_rx" PULL_MODE=UP   IO_TYPE=LVCMOS33;
+IO_LOC "uart_ext_tx"  38;
+IO_PORT "uart_ext_tx" PULL_MODE=NONE IO_TYPE=LVCMOS33;
+IO_LOC "uart_ext_rx"  39;
+IO_PORT "uart_ext_rx" PULL_MODE=UP   IO_TYPE=LVCMOS33;
 IO_LOC "led[0]"    10;
 IO_LOC "led[1]"    11;
 IO_LOC "led[2]"    13;
