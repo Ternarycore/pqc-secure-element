@@ -3,8 +3,16 @@
 // AT-commands arrive on UART1 (ESP32-S3 link), responses sent on UART1.
 // Boot banner printed on UART0 (debug console).
 //
-// Commands: AT+RAND  AT+SIGN:<hex>  AT+PUBKEY  AT+STORE:<s>,<hex>
-//            AT+DEL:<s>  AT+TEST  AT+INFO
+// Protocol (must match ternarycore_se_hal.cpp):
+//   AT+RAND:<len>             → RND:<hex_len_bytes>\r\nOK\r\n
+//   AT+SIGN:ECDSA:<s>:<hash>  → SIG:<der_hex>\r\nOK\r\n
+//   AT+STORE:<slot>:<hex64>   → OK\r\n / ERROR:<msg>\r\n
+//   AT+DEL:<slot>             → OK\r\n / ERROR:<msg>\r\n
+//   AT+PUBKEY:<slot>          → PUB:<hex33_compressed>\r\nOK\r\n
+//   AT+TEST                   → OK\r\n / ERROR:<msg>\r\n
+//   AT+INFO                   → INFO:TernaryCore-SE:2.0.0\r\nOK\r\n
+//
+// Error responses: ERR:<n>\r\n  (1=param,2=auth,3=locked,5=notfound,6=mem)
 
 #include <stdint.h>
 #include <stddef.h>
@@ -40,6 +48,12 @@ static int str_ncmp(const char *a, const char *b, int n) {
     return 0;
 }
 
+static unsigned int str_to_uint(const char *s) {
+    unsigned int v = 0;
+    while (*s >= '0' && *s <= '9') v = v * 10 + (unsigned int)(*s++ - '0');
+    return v;
+}
+
 // ─── Hex helpers ─────────────────────────────────────────────────────
 
 static char hex_digit(uint8_t n) {
@@ -51,6 +65,34 @@ static int hex_val(char c) {
     if (c >= 'A' && c <= 'F') return c - 'A' + 10;
     if (c >= 'a' && c <= 'f') return c - 'a' + 10;
     return -1;
+}
+
+static void tx_hex(const uint8_t *data, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        uart_putc(UART1_BASE, hex_digit(data[i] >> 4));
+        uart_putc(UART1_BASE, hex_digit(data[i] & 0xF));
+    }
+}
+
+// Decode hex string into buf.  Returns number of bytes decoded, or 0 on error.
+static size_t hex_decode(uint8_t *buf, size_t cap, const char *hex, size_t hex_len) {
+    if (hex_len & 1) return 0;           // must be even
+    size_t out = hex_len / 2;
+    if (out > cap) return 0;
+    for (size_t i = 0; i < out; i++) {
+        int hi = hex_val(hex[i * 2]);
+        int lo = hex_val(hex[i * 2 + 1]);
+        if (hi < 0 || lo < 0) return 0;
+        buf[i] = (uint8_t)((hi << 4) | lo);
+    }
+    return out;
+}
+
+// Return length of null-terminated string.
+static size_t str_len(const char *s) {
+    size_t n = 0;
+    while (*s++) n++;
+    return n;
 }
 
 // ─── AT-command I/O ──────────────────────────────────────────────────
@@ -68,50 +110,72 @@ static void at_ok(void) {
     at_puts("OK\r\n");
 }
 
-static void at_error(void) {
-    at_puts("ERROR\r\n");
-}
-
 static void at_error_msg(const char *msg) {
     at_puts("ERROR:");
     at_puts(msg);
     at_puts("\r\n");
 }
 
+// Numeric error code for HAL mapping:
+// 1=SE_ERR_PARAM, 2=SE_ERR_AUTH, 5=SE_ERR_NOTFOUND, 6=SE_ERR_MEMORY
+static void at_err_code(int code) {
+    char buf[8];
+    buf[0] = 'E'; buf[1] = 'R'; buf[2] = 'R'; buf[3] = ':';
+    buf[4] = (char)('0' + (code % 10));
+    buf[5] = '\r'; buf[6] = '\n'; buf[7] = '\0';
+    at_puts(buf);
+}
+
 // ─── Command handlers ────────────────────────────────────────────────
 
-static void cmd_rand(void) {
-    uint8_t r[32];
-    trng_bytes(r, 32);
-    for (int i = 0; i < 32; i++) {
-        uart_putc(UART1_BASE, hex_digit(r[i] >> 4));
-        uart_putc(UART1_BASE, hex_digit(r[i] & 0xF));
+// AT+RAND:<len>  →  RND:<hex_len_bytes>\r\nOK\r\n
+// len: 1–64 bytes.
+static void cmd_rand(const char *args) {
+    unsigned int len = str_to_uint(args);
+    if (len == 0 || len > 64) {
+        at_err_code(1);   // SE_ERR_PARAM
+        return;
     }
+    uint8_t r[64];
+    trng_bytes(r, len);
+    at_puts("RND:");
+    tx_hex(r, len);
     at_puts("\r\n");
     at_ok();
 }
 
-static void cmd_sign(const char *hex_msg) {
-    uint8_t key[32];
-    if (ks_get(0, key) != KS_OK) {
-        at_error_msg("no key loaded (use AT+STORE)");
+// AT+SIGN:ECDSA:<slot>:<hash_hex64>  →  SIG:<der_hex>\r\nOK\r\n
+// hash_hex64: 64 hex chars = 32-byte pre-computed SHA-256 hash.
+// The HAL always hashes on the host side before calling sign.
+static void cmd_sign(const char *args) {
+    // Expect "ECDSA:<slot>:<hash_hex>"
+    if (str_ncmp(args, "ECDSA:", 6) != 0) {
+        at_error_msg("expected ECDSA:<slot>:<hash>");
+        return;
+    }
+    const char *p = args + 6;
+    int slot = p[0] - '0';
+    if (slot < 0 || slot > 3 || p[1] != ':') {
+        at_err_code(1);
+        return;
+    }
+    const char *hash_hex = p + 2;
+    if (str_len(hash_hex) < 64) {
+        at_err_code(1);
         return;
     }
 
-    uint8_t msg[128];
-    int     msg_len = 0;
-    while (*hex_msg == ' ' || *hex_msg == '\t') hex_msg++;
-    while (*hex_msg && *hex_msg != '\r' && *hex_msg != '\n' && msg_len < 128) {
-        int hi = hex_val(hex_msg[0]);
-        int lo = hex_val(hex_msg[1]);
-        if (hi < 0 || lo < 0) { at_error_msg("invalid hex"); return; }
-        msg[msg_len++] = (uint8_t)((hi << 4) | lo);
-        hex_msg += 2;
-    }
-    if (msg_len == 0) { at_error_msg("empty message"); return; }
-
     uint8_t hash[32];
-    sha256(msg, (size_t)msg_len, hash);
+    if (hex_decode(hash, 32, hash_hex, 64) != 32) {
+        at_err_code(1);
+        return;
+    }
+
+    uint8_t key[32];
+    if (ks_get((uint8_t)slot, key) != KS_OK) {
+        at_err_code(5);   // SE_ERR_NOTFOUND
+        return;
+    }
 
     uint8_t  der[72];
     uint32_t der_len;
@@ -119,62 +183,83 @@ static void cmd_sign(const char *hex_msg) {
         at_error_msg("signing failed");
         return;
     }
-    for (uint32_t i = 0; i < der_len; i++) {
-        uart_putc(UART1_BASE, hex_digit(der[i] >> 4));
-        uart_putc(UART1_BASE, hex_digit(der[i] & 0xF));
-    }
+
+    at_puts("SIG:");
+    tx_hex(der, der_len);
     at_puts("\r\n");
     at_ok();
 }
 
-static void cmd_pubkey(void) {
+// AT+PUBKEY:<slot>  →  PUB:<hex33_compressed>\r\nOK\r\n
+// Output is a 33-byte compressed public key (02/03 || Gx).
+static void cmd_pubkey(const char *args) {
+    int slot = args[0] - '0';
+    if (slot < 0 || slot > 3) {
+        at_err_code(1);
+        return;
+    }
     uint8_t key[32];
-    if (ks_get(0, key) != KS_OK) {
-        at_error_msg("no key loaded (use AT+STORE)");
+    if (ks_get((uint8_t)slot, key) != KS_OK) {
+        at_err_code(5);   // SE_ERR_NOTFOUND
         return;
     }
-    uint8_t pub[65];
-    if (secp256k1_pubkey(key, pub) != 0) {
-        at_error_msg("pubkey derivation failed");
+
+    // secp256k1_pubkey returns 65-byte uncompressed key: 04 || Gx (32) || Gy (32)
+    uint8_t pub65[65];
+    if (secp256k1_pubkey(key, pub65) != 0) {
+        at_error_msg("pubkey failed");
         return;
     }
-    for (int i = 0; i < 65; i++) {
-        uart_putc(UART1_BASE, hex_digit(pub[i] >> 4));
-        uart_putc(UART1_BASE, hex_digit(pub[i] & 0xF));
-    }
+
+    // Compress: 02 if Gy even, 03 if Gy odd, followed by 32-byte Gx.
+    uint8_t pub33[33];
+    pub33[0] = 0x02 | (pub65[64] & 0x01);
+    memcpy(pub33 + 1, pub65 + 1, 32);
+
+    at_puts("PUB:");
+    tx_hex(pub33, 33);
     at_puts("\r\n");
     at_ok();
 }
 
+// AT+STORE:<slot>:<hex64>  →  OK\r\n
+// Stores a 32-byte secp256k1 private key in the given slot.
 static void cmd_store(const char *args) {
     int slot = args[0] - '0';
-    if (slot < 0 || slot > 3 || args[1] != ',') {
-        at_error_msg("format: AT+STORE:<slot>,<hex64>");
+    if (slot < 0 || slot > 3 || args[1] != ':') {
+        at_error_msg("format: AT+STORE:<slot>:<hex64>");
         return;
     }
     const char *p = args + 2;
+    if (str_len(p) < 64) {
+        at_err_code(1);
+        return;
+    }
     uint8_t key[32];
-    for (int i = 0; i < 32; i++) {
-        int hi = hex_val(p[0]);
-        int lo = hex_val(p[1]);
-        if (hi < 0 || lo < 0) { at_error_msg("invalid hex key"); return; }
-        key[i] = (uint8_t)((hi << 4) | lo);
-        p += 2;
+    if (hex_decode(key, 32, p, 64) != 32) {
+        at_err_code(1);
+        return;
     }
     if (ks_store((uint8_t)slot, key) != KS_OK) {
-        at_error_msg("store failed");
+        at_err_code(6);   // SE_ERR_MEMORY
         return;
     }
     at_ok();
 }
 
+// AT+DEL:<slot>  →  OK\r\n
 static void cmd_del(const char *args) {
     int slot = args[0] - '0';
-    if (slot < 0 || slot > 3) { at_error_msg("invalid slot"); return; }
+    if (slot < 0 || slot > 3) {
+        at_err_code(1);
+        return;
+    }
     ks_delete((uint8_t)slot);
     at_ok();
 }
 
+// AT+TEST  →  OK\r\n
+// Runs SHA-256 and ECDSA self-tests.
 static void cmd_test(void) {
     // SHA-256("") = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
     static const uint8_t sha_empty_ref[32] = {
@@ -192,12 +277,11 @@ static void cmd_test(void) {
         }
     }
 
-    // ECDSA: pubkey from private key 0x00..01 must be generator G
+    // ECDSA: pubkey from private key 0x00..01 must be generator G (uncompressed)
     static const uint8_t g_priv[32] = {
         0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,
         0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1
     };
-    // G (uncompressed): 04 || Gx || Gy
     static const uint8_t g_pub_ref[65] = {
         0x04,
         0x79,0xBE,0x66,0x7E,0xF9,0xDC,0xBB,0xAC,
@@ -207,11 +291,11 @@ static void cmd_test(void) {
         0x48,0x3A,0xDA,0x77,0x26,0xA3,0xC4,0x65,
         0x5D,0xA4,0xFB,0xFC,0x0E,0x11,0x08,0xA8,
         0xFD,0x17,0xB4,0x48,0xA6,0x85,0x54,0x19,
-        0x9C,0x47,0xD0,0x0F,0xFB,0x10,0xD4,0xB8
+        0x9C,0x47,0xD0,0x8F,0xFB,0x10,0xD4,0xB8
     };
     uint8_t g_pub[65];
     if (secp256k1_pubkey(g_priv, g_pub) != 0) {
-        at_error_msg("ECDSA pubkey test failed");
+        at_error_msg("ECDSA pubkey failed");
         return;
     }
     for (int i = 0; i < 65; i++) {
@@ -223,17 +307,9 @@ static void cmd_test(void) {
     at_ok();
 }
 
+// AT+INFO  →  INFO:TernaryCore-SE:2.0.0\r\nOK\r\n
 static void cmd_info(void) {
-    at_puts("TernaryCore-SE\r\n");
-    at_puts("Phase 2 — secp256k1 ECDSA\r\n");
-    at_puts("Keys: ");
-    for (int i = 0; i < KS_SLOTS; i++) {
-        if (i > 0) uart_putc(UART1_BASE, ',');
-        uart_putc(UART1_BASE, '0' + (char)i);
-        uart_putc(UART1_BASE, ks_occupied((uint8_t)i) ? '+' : '-');
-    }
-    at_puts("\r\n");
-    at_puts("Cmds:AT+RAND,AT+SIGN,AT+PUBKEY,AT+STORE,AT+DEL,AT+TEST,AT+INFO\r\n");
+    at_puts("INFO:TernaryCore-SE:2.0.0\r\n");
     at_ok();
 }
 
@@ -255,14 +331,14 @@ static int cmd_starts(const char *s) {
 static void cmd_dispatch(void) {
     cmd_buf[cmd_pos] = '\0';
 
-    if (cmd_is("AT+RAND"))                    { cmd_rand(); }
-    else if (cmd_starts("AT+SIGN:"))          { cmd_sign(cmd_buf + 8); }
-    else if (cmd_is("AT+PUBKEY"))             { cmd_pubkey(); }
-    else if (cmd_starts("AT+STORE:"))         { cmd_store(cmd_buf + 9); }
-    else if (cmd_starts("AT+DEL:"))           { cmd_del(cmd_buf + 7); }
-    else if (cmd_is("AT+TEST"))               { cmd_test(); }
-    else if (cmd_is("AT+INFO"))               { cmd_info(); }
-    else                                       { at_error(); }
+    if      (cmd_starts("AT+RAND:"))           { cmd_rand(cmd_buf + 8); }
+    else if (cmd_starts("AT+SIGN:"))           { cmd_sign(cmd_buf + 8); }
+    else if (cmd_starts("AT+PUBKEY:"))         { cmd_pubkey(cmd_buf + 10); }
+    else if (cmd_starts("AT+STORE:"))          { cmd_store(cmd_buf + 9); }
+    else if (cmd_starts("AT+DEL:"))            { cmd_del(cmd_buf + 7); }
+    else if (cmd_is("AT+TEST"))                { cmd_test(); }
+    else if (cmd_is("AT+INFO"))                { cmd_info(); }
+    else                                        { at_err_code(1); }
 }
 
 // ─── Main ────────────────────────────────────────────────────────────
