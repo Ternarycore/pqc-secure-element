@@ -310,9 +310,61 @@ static void cmd_info(void) {
     at_puts("INFO:TernaryCore-SE:2.0.0\r\n");
 }
 
-// Stub: unimplemented commands (Phase 3)  →  ERR:5\r\n
-static void cmd_not_impl(void) {
-    at_err_code(5);   // SE_ERR_NOTFOUND
+// ─── Object storage: AT+READ:<obj_id> → DATA:<32_hex_bytes>\r\n ──────
+// Maps object IDs 0–3 to key slots (shared storage for Phase 2).
+
+static void cmd_read(const char *args) {
+    unsigned int obj_id = str_to_uint(args);
+    if (obj_id > 3) { at_err_code(5); return; }
+    uint8_t data[32];
+    if (ks_get((uint8_t)obj_id, data) != KS_OK) { at_err_code(5); return; }
+    at_puts("DATA:");
+    tx_hex(data, 32);
+    at_puts("\r\n");
+}
+
+// ─── Monotonic counters: AT+CTR:GET/INC/RST:<id> ─────────────────────
+// 8 counter slots (0–7) in SRAM.  Reset on power cycle (Phase 3: NVM).
+
+static uint32_t g_counters[8];
+
+static void cmd_ctr(const char *args) {
+    if (str_ncmp(args, "GET:", 4) == 0) {
+        unsigned int id = str_to_uint(args + 4);
+        if (id > 7) { at_err_code(1); return; }
+        char buf[16];
+        uint32_t v = g_counters[id];
+        int pos = 0;
+        if (v == 0) { buf[pos++] = '0'; }
+        else {
+            int start = pos;
+            while (v) { buf[pos++] = (char)('0' + (v % 10)); v /= 10; }
+            // reverse in-place
+            int end = pos - 1;
+            while (start < end) {
+                char t = buf[start]; buf[start] = buf[end]; buf[end] = t;
+                start++; end--;
+            }
+        }
+        buf[pos] = '\0';
+        at_puts("CTR:");
+        at_puts(buf);
+        at_puts("\r\n");
+    }
+    else if (str_ncmp(args, "INC:", 4) == 0) {
+        unsigned int id = str_to_uint(args + 4);
+        if (id > 7) { at_err_code(1); return; }
+        if (g_counters[id] >= 255) { at_err_code(6); return; }
+        g_counters[id]++;
+        at_ok();
+    }
+    else if (str_ncmp(args, "RST:", 4) == 0) {
+        unsigned int id = str_to_uint(args + 4);
+        if (id > 7) { at_err_code(1); return; }
+        g_counters[id] = 0;
+        at_ok();
+    }
+    else { at_err_code(1); }
 }
 
 // ─── AT-command dispatcher ───────────────────────────────────────────
@@ -338,10 +390,10 @@ static void cmd_dispatch(void) {
     else if (cmd_starts("AT+PUBKEY:"))         { cmd_pubkey(cmd_buf + 10); }
     else if (cmd_starts("AT+STORE:"))          { cmd_store(cmd_buf + 9); }
     else if (cmd_starts("AT+DEL:"))            { cmd_del(cmd_buf + 7); }
+    else if (cmd_starts("AT+CTR:"))            { cmd_ctr(cmd_buf + 7); }
+    else if (cmd_starts("AT+READ:"))           { cmd_read(cmd_buf + 7); }
     else if (cmd_is("AT+TEST"))                { cmd_test(); }
     else if (cmd_is("AT+INFO"))                { cmd_info(); }
-    else if (cmd_starts("AT+CTR:") ||
-             cmd_starts("AT+READ:"))            { cmd_not_impl(); }
     else                                        { at_err_code(1); }
 }
 
