@@ -128,7 +128,7 @@ static void at_err_code(int code) {
 
 // ─── Command handlers ────────────────────────────────────────────────
 
-// AT+RAND:<len>  →  RND:<hex_len_bytes>\r\nOK\r\n
+// AT+RAND:<len>  →  RND:<hex_len_bytes>\r\n
 // len: 1–64 bytes.
 static void cmd_rand(const char *args) {
     unsigned int len = str_to_uint(args);
@@ -141,16 +141,16 @@ static void cmd_rand(const char *args) {
     at_puts("RND:");
     tx_hex(r, len);
     at_puts("\r\n");
-    at_ok();
 }
 
-// AT+SIGN:ECDSA:<slot>:<hash_hex64>  →  SIG:<der_hex>\r\nOK\r\n
+// AT+SIGN:ECDSA:<slot>:<hash_hex64>  →  SIG:<der_hex>\r\n
+// AT+SIGN:SCHNORR  →  ERR:5  (Phase 3 PQC, not yet available)
 // hash_hex64: 64 hex chars = 32-byte pre-computed SHA-256 hash.
 // The HAL always hashes on the host side before calling sign.
 static void cmd_sign(const char *args) {
     // Expect "ECDSA:<slot>:<hash_hex>"
     if (str_ncmp(args, "ECDSA:", 6) != 0) {
-        at_error_msg("expected ECDSA:<slot>:<hash>");
+        at_err_code(5);   // SE_ERR_NOTFOUND (SCHNORR deferred to Phase 3)
         return;
     }
     const char *p = args + 6;
@@ -187,10 +187,9 @@ static void cmd_sign(const char *args) {
     at_puts("SIG:");
     tx_hex(der, der_len);
     at_puts("\r\n");
-    at_ok();
 }
 
-// AT+PUBKEY:<slot>  →  PUB:<hex33_compressed>\r\nOK\r\n
+// AT+PUBKEY:<slot>  →  PUB:<hex33_compressed>\r\n
 // Output is a 33-byte compressed public key (02/03 || Gx).
 static void cmd_pubkey(const char *args) {
     int slot = args[0] - '0';
@@ -219,7 +218,6 @@ static void cmd_pubkey(const char *args) {
     at_puts("PUB:");
     tx_hex(pub33, 33);
     at_puts("\r\n");
-    at_ok();
 }
 
 // AT+STORE:<slot>:<hex64>  →  OK\r\n
@@ -307,10 +305,14 @@ static void cmd_test(void) {
     at_ok();
 }
 
-// AT+INFO  →  INFO:TernaryCore-SE:2.0.0\r\nOK\r\n
+// AT+INFO  →  INFO:TernaryCore-SE:2.0.0\r\n
 static void cmd_info(void) {
     at_puts("INFO:TernaryCore-SE:2.0.0\r\n");
-    at_ok();
+}
+
+// Stub: unimplemented commands (Phase 3)  →  ERR:5\r\n
+static void cmd_not_impl(void) {
+    at_err_code(5);   // SE_ERR_NOTFOUND
 }
 
 // ─── AT-command dispatcher ───────────────────────────────────────────
@@ -338,6 +340,8 @@ static void cmd_dispatch(void) {
     else if (cmd_starts("AT+DEL:"))            { cmd_del(cmd_buf + 7); }
     else if (cmd_is("AT+TEST"))                { cmd_test(); }
     else if (cmd_is("AT+INFO"))                { cmd_info(); }
+    else if (cmd_starts("AT+CTR:") ||
+             cmd_starts("AT+READ:"))            { cmd_not_impl(); }
     else                                        { at_err_code(1); }
 }
 

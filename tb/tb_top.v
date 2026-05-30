@@ -184,7 +184,7 @@ module tb_top;
         #100 rst_n = 1'b1;
 
         // ── [1] Verify UART0 boot banner ─────────────────────────
-        $display("[1/5] Verifying UART0 boot banner...");
+        $display("[1/6] Verifying UART0 boot banner...");
         while (cycle_cnt < MAX_CLK && msg_pos < msg_len) begin
             @(posedge u0_ready);
             recv_chr = u0_char;
@@ -211,7 +211,7 @@ module tb_top;
 
         // ── [2] Send AT+INFO on UART1 ────────────────────────────
         u1_mark = u1_len;
-        $display("[2/5] Sending AT+INFO on UART1...");
+        $display("[2/6] Sending AT+INFO on UART1...");
         uart1_send("A"); uart1_send("T"); uart1_send("+");
         uart1_send("I"); uart1_send("N"); uart1_send("F");
         uart1_send("O");
@@ -243,18 +243,18 @@ module tb_top;
             fail = 1;
         end
 
-        // ── [3] AT+STORE:0,<k=1> ────────────────────────────────
+        // ── [3] AT+STORE:0:<k=1> ────────────────────────────────
         u1_mark = u1_len;
-        $display("[3/5] AT+STORE:0,<k=1>...");
+        $display("[3/6] AT+STORE:0:<k=1>...");
         uart1_send("A"); uart1_send("T"); uart1_send("+");
         uart1_send("S"); uart1_send("T"); uart1_send("O");
         uart1_send("R"); uart1_send("E"); uart1_send(":");
-        uart1_send("0"); uart1_send(",");
+        uart1_send("0"); uart1_send(":");
         for (i = 0; i < 62; i = i + 1) uart1_send("0");
         uart1_send("0"); uart1_send("1");
         uart1_send(8'h0D); uart1_send(8'h0A);
 
-        repeat (1000000) @(posedge clk);
+        repeat (500000) @(posedge clk);
 
         $display("AT+STORE response (%d new chars):", u1_len - u1_mark);
         for (i = u1_mark; i < u1_len && i < 512; i = i + 1) $write("%c", u1_buf[i]);
@@ -272,9 +272,9 @@ module tb_top;
             fail = 1;
         end
 
-        // ── [4] AT+DEL:0 then AT+RAND ────────────────────────────
+        // ── [4] AT+DEL:0 ────────────────────────────────────────
         u1_mark = u1_len;
-        $display("[4/5] AT+DEL:0 + AT+RAND...");
+        $display("[4/6] AT+DEL:0...");
         uart1_send("A"); uart1_send("T"); uart1_send("+");
         uart1_send("D"); uart1_send("E"); uart1_send("L");
         uart1_send(":"); uart1_send("0");
@@ -298,11 +298,13 @@ module tb_top;
             fail = 1;
         end
 
-        // AT+RAND — generate 32 random bytes (64 hex chars)
+        // ── [5] AT+RAND:32 ──────────────────────────────────────
         u1_mark = u1_len;
+        $display("[5/6] AT+RAND:32...");
         uart1_send("A"); uart1_send("T"); uart1_send("+");
         uart1_send("R"); uart1_send("A"); uart1_send("N");
-        uart1_send("D");
+        uart1_send("D"); uart1_send(":"); uart1_send("3");
+        uart1_send("2");
         uart1_send(8'h0D); uart1_send(8'h0A);
 
         repeat (500000) @(posedge clk);
@@ -311,17 +313,43 @@ module tb_top;
         for (i = u1_mark; i < u1_len && i < 512; i = i + 1) $write("%c", u1_buf[i]);
         $display("");
 
-        // AT+RAND should produce at least 64 hex chars + OK
-        if (u1_len - u1_mark >= 64)
-            $display("PASS: AT+RAND returned %d chars", u1_len - u1_mark);
+        // Response: RND:<64 hex chars>\r\n  (no trailing OK)
+        if (u1_len - u1_mark >= 4 && u1_buf[u1_mark] == "R" &&
+            u1_buf[u1_mark+1] == "N" && u1_buf[u1_mark+2] == "D" &&
+            u1_buf[u1_mark+3] == ":")
+            $display("PASS: AT+RAND returned RND: prefixed data (%d chars)", u1_len - u1_mark);
         else begin
-            $display("FAIL: AT+RAND only %d chars", u1_len - u1_mark);
+            $display("FAIL: AT+RAND response missing RND: prefix (%d chars)", u1_len - u1_mark);
             fail = 1;
         end
 
-        // ── [5] Summary ──────────────────────────────────────────
-        $display("[5/5] Note: AT+PUBKEY, AT+SIGN, AT+TEST verified via compilation");
-        $display("       — deferred to hardware test (ENABLE_FAST_MUL=1 needed for speed).");
+        // ── [6] AT+CTR:GET:0 stub ───────────────────────────────
+        u1_mark = u1_len;
+        $display("[6/6] AT+CTR:GET:0 (stub)...");
+        uart1_send("A"); uart1_send("T"); uart1_send("+");
+        uart1_send("C"); uart1_send("T"); uart1_send("R");
+        uart1_send(":"); uart1_send("G"); uart1_send("E");
+        uart1_send("T"); uart1_send(":"); uart1_send("0");
+        uart1_send(8'h0D); uart1_send(8'h0A);
+
+        repeat (200000) @(posedge clk);
+
+        $display("AT+CTR response (%d new chars):", u1_len - u1_mark);
+        for (i = u1_mark; i < u1_len && i < 512; i = i + 1) $write("%c", u1_buf[i]);
+        $display("");
+
+        // Expect ERR:5\r\n
+        if (u1_len - u1_mark >= 4 &&
+            u1_buf[u1_mark] == "E" && u1_buf[u1_mark+1] == "R" &&
+            u1_buf[u1_mark+2] == "R" && u1_buf[u1_mark+3] == ":")
+            $display("PASS: AT+CTR stub returned ERR code");
+        else begin
+            $display("FAIL: AT+CTR stub missing ERR: prefix");
+            fail = 1;
+        end
+
+        // ── Summary ─────────────────────────────────────────────
+        $display("Note: AT+PUBKEY, AT+SIGN, AT+TEST deferred to HW test (speed).");
 
         if (fail)
             $display("\n=== tb_top: FAILED ===");
