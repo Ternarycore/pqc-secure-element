@@ -4,15 +4,17 @@
 // Boot banner printed on UART0 (debug console).
 //
 // Protocol (must match ternarycore_se_hal.cpp):
-//   AT+RAND:<len>             → RND:<hex_len_bytes>\r\nOK\r\n
-//   AT+SIGN:ECDSA:<s>:<hash>  → SIG:<der_hex>\r\nOK\r\n
-//   AT+STORE:<slot>:<hex64>   → OK\r\n / ERROR:<msg>\r\n
-//   AT+DEL:<slot>             → OK\r\n / ERROR:<msg>\r\n
-//   AT+PUBKEY:<slot>          → PUB:<hex33_compressed>\r\nOK\r\n
-//   AT+TEST                   → OK\r\n / ERROR:<msg>\r\n
-//   AT+INFO                   → INFO:TernaryCore-SE:2.0.0\r\nOK\r\n
+//   AT+RAND:<len>             → RND:<hex_len_bytes>\r\n
+//   AT+SIGN:ECDSA:<s>:<hash>  → SIG:<der_hex>\r\n
+//   AT+STORE:<slot>:<hex64>   → OK\r\n / ERR:<n>\r\n
+//   AT+DEL:<slot>             → OK\r\n / ERR:<n>\r\n
+//   AT+PUBKEY:<slot>          → PUB:<hex33_compressed>\r\n
+//   AT+TEST                   → OK\r\n / ERR:<n>\r\n
+//   AT+INFO                   → INFO:TernaryCore-SE:2.0.0\r\n
 //
-// Error responses: ERR:<n>\r\n  (1=param,2=auth,3=locked,5=notfound,6=mem)
+// Error responses: ERR:<n>\r\n  (1=param,2=auth,3=locked,5=notfound,6=mem,7=internal)
+// NOTE: at_error_msg() sends ERROR:... which the HAL CANNOT parse.
+//       Always use at_err_code() in command response paths.
 
 #include <stdint.h>
 #include <stddef.h>
@@ -23,7 +25,7 @@
 #include "secp256k1.h"
 #include "keystore.h"
 
-// ─── libc stubs (bare-metal, no standard library linked) ─────────────
+// ─── libc stubs (bare-metal, no standard library linked) ─────────────────
 
 void *memset(void *s, int c, size_t n) {
     unsigned char *p = (unsigned char *)s;
@@ -38,7 +40,7 @@ void *memcpy(void *d, const void *s, size_t n) {
     return d;
 }
 
-// ─── String helpers ──────────────────────────────────────────────────
+// ─── String helpers ────────────────────────────────────────────────────
 
 static int str_ncmp(const char *a, const char *b, int n) {
     for (int i = 0; i < n; i++) {
@@ -54,7 +56,7 @@ static unsigned int str_to_uint(const char *s) {
     return v;
 }
 
-// ─── Hex helpers ─────────────────────────────────────────────────────
+// ─── Hex helpers ─────────────────────────────────────────────────────────
 
 static char hex_digit(uint8_t n) {
     return (char)(n < 10 ? '0' + n : 'A' + (n - 10));
@@ -95,7 +97,7 @@ static size_t str_len(const char *s) {
     return n;
 }
 
-// ─── AT-command I/O ──────────────────────────────────────────────────
+// ─── AT-command I/O ────────────────────────────────────────────────────────
 
 #define CMD_BUF_SZ 256
 
@@ -110,14 +112,18 @@ static void at_ok(void) {
     at_puts("OK\r\n");
 }
 
+// For debug output on UART0 only — do NOT use in AT-command response paths.
+// The HAL checks for "ERR:" (4 chars); "ERROR:" will not be parsed and
+// causes the HAL to wait until timeout.  Use at_err_code() instead.
 static void at_error_msg(const char *msg) {
-    at_puts("ERROR:");
-    at_puts(msg);
-    at_puts("\r\n");
+    uart_puts(UART0_BASE, "DBG ERROR:");
+    uart_puts(UART0_BASE, msg);
+    uart_puts(UART0_BASE, "\r\n");
 }
 
 // Numeric error code for HAL mapping:
-// 1=SE_ERR_PARAM, 2=SE_ERR_AUTH, 5=SE_ERR_NOTFOUND, 6=SE_ERR_MEMORY
+// 1=SE_ERR_PARAM, 2=SE_ERR_AUTH, 3=SE_ERR_LOCKED,
+// 5=SE_ERR_NOTFOUND, 6=SE_ERR_MEMORY, 7=SE_ERR_INTERNAL
 static void at_err_code(int code) {
     char buf[8];
     buf[0] = 'E'; buf[1] = 'R'; buf[2] = 'R'; buf[3] = ':';
@@ -126,7 +132,7 @@ static void at_err_code(int code) {
     at_puts(buf);
 }
 
-// ─── Command handlers ────────────────────────────────────────────────
+// ─── Command handlers ───────────────────────────────────────────────────────
 
 // AT+RAND:<len>  →  RND:<hex_len_bytes>\r\n
 // len: 1–64 bytes.
@@ -180,7 +186,7 @@ static void cmd_sign(const char *args) {
     uint8_t  der[72];
     uint32_t der_len;
     if (secp256k1_sign(key, hash, der, &der_len) != 0) {
-        at_error_msg("signing failed");
+        at_err_code(7);   // SE_ERR_INTERNAL
         return;
     }
 
@@ -206,7 +212,7 @@ static void cmd_pubkey(const char *args) {
     // secp256k1_pubkey returns 65-byte uncompressed key: 04 || Gx (32) || Gy (32)
     uint8_t pub65[65];
     if (secp256k1_pubkey(key, pub65) != 0) {
-        at_error_msg("pubkey failed");
+        at_err_code(7);   // SE_ERR_INTERNAL
         return;
     }
 
@@ -225,7 +231,7 @@ static void cmd_pubkey(const char *args) {
 static void cmd_store(const char *args) {
     int slot = args[0] - '0';
     if (slot < 0 || slot > 3 || args[1] != ':') {
-        at_error_msg("format: AT+STORE:<slot>:<hex64>");
+        at_err_code(1);   // SE_ERR_PARAM
         return;
     }
     const char *p = args + 2;
@@ -270,7 +276,7 @@ static void cmd_test(void) {
     sha256((const uint8_t *)"", 0, sha_out);
     for (int i = 0; i < 32; i++) {
         if (sha_out[i] != sha_empty_ref[i]) {
-            at_error_msg("SHA-256 test failed");
+            at_err_code(7);   // SE_ERR_INTERNAL
             return;
         }
     }
@@ -293,12 +299,12 @@ static void cmd_test(void) {
     };
     uint8_t g_pub[65];
     if (secp256k1_pubkey(g_priv, g_pub) != 0) {
-        at_error_msg("ECDSA pubkey failed");
+        at_err_code(7);   // SE_ERR_INTERNAL
         return;
     }
     for (int i = 0; i < 65; i++) {
         if (g_pub[i] != g_pub_ref[i]) {
-            at_error_msg("ECDSA G mismatch");
+            at_err_code(7);   // SE_ERR_INTERNAL
             return;
         }
     }
@@ -367,7 +373,7 @@ static void cmd_ctr(const char *args) {
     else { at_err_code(1); }
 }
 
-// ─── AT-command dispatcher ───────────────────────────────────────────
+// ─── AT-command dispatcher ───────────────────────────────────────────────
 
 static int cmd_is(const char *s) {
     int len = 0;
@@ -397,7 +403,7 @@ static void cmd_dispatch(void) {
     else                                        { at_err_code(1); }
 }
 
-// ─── Main ────────────────────────────────────────────────────────────
+// ─── Main ─────────────────────────────────────────────────────────────────
 
 void main(void) {
     uart_puts(UART0_BASE, "TernaryCore-SE booting...\r\n");
