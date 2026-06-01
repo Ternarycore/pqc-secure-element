@@ -1,32 +1,17 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE GowinProject>
-<GowinProject Version="1.9.9">
-    <ProjectInfo>
-        <Device pn="GW1NR-LV9QN88PC6/I5" family="GW1NR">GW1NR-9C</Device>
-        <FileType>Verilog</FileType>
-        <TopModule>top</TopModule>
-        <SynthesisTool>GowinSynthesis</SynthesisTool>
-    </ProjectInfo>
-    <Options>
-        <Optimize>Area</Optimize>
-        <DualPurposePin>true</DualPurposePin>
-        <UseSSPIAsGPIO>true</UseSSPIAsGPIO>
-        <UseMSPIAsGPIO>true</UseMSPIAsGPIO>
-        <UseReadyAsGPIO>true</UseReadyAsGPIO>
-        <UseDoneAsGPIO>true</UseDoneAsGPIO>
-        <UseReconfignAsGPIO>true</UseReconfignAsGPIO>
-        <UseModeAsGPIO>true</UseModeAsGPIO>
-    </Options>
+<?xml version="1" encoding="UTF-8"?>
+<!DOCTYPE gowin-fpga-project>
+<Project>
+    <Template>FPGA</Template>
+    <Version>5</Version>
+    <Device name="GW1NR-9C" pn="GW1NR-LV9QN88PC6/I5">gw1nr9c-004</Device>
     <FileList>
-        <File path="rtl/barrett_reduce.v" type="verilog"/>
-        <File path="rtl/picorv32.v" type="verilog"/>
-        <File path="rtl/ternary_mac.v" type="verilog"/>
-        <File path="rtl/ternary_poly_mul.v" type="verilog"/>
-        <File path="rtl/top.v" type="verilog"/>
-        <File path="rtl/wb_uart.v" type="verilog"/>
+        <File path="rtl/barrett_reduce.v" type="file.verilog" enable="1"/>
+        <File path="rtl/picorv32.v" type="file.verilog" enable="1"/>
+        <File path="rtl/ternary_mac.v" type="file.verilog" enable="1"/>
+        <File path="rtl/ternary_poly_mul.v" type="file.verilog" enable="1"/>
+        <File path="rtl/top.v" type="file.verilog" enable="1"/>
+        <File path="rtl/wb_uart.v" type="file.verilog" enable="1"/>
+        <File path="constr/tangnano.cst" type="file.cst" enable="1"/>
+        <File path="constr/tangnano.sdc" type="file.sdc" enable="1"/>
     </FileList>
-    <ConstraintList>
-        <File path="constr/tangnano.cst" type="cst"/>
-        <File path="constr/tangnano.sdc" type="sdc"/>
-    </ConstraintList>
-</GowinProject>
+</Project>
