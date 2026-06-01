@@ -99,10 +99,12 @@ module top #(
     (* syn_ramstyle = "block_ram" *) reg [31:0] rom [0:4095];
     reg  [31:0] rom_rdata;
 
-    integer rom_init;
+    // GowinSynthesis elaborates initial blocks statically and caps loop
+    // unrolling at 2000 iterations — a 4096-entry fill loop exceeds this.
+    // BSRAM is zero-initialised for addresses not covered by the hex file;
+    // 0x00000000 (add x0,x0,x0) is a safe RISC-V no-op, equivalent to the
+    // 0x00000013 (addi x0,x0,0) NOP that was being filled explicitly.
     initial begin
-        for (rom_init = 0; rom_init < 4096; rom_init = rom_init + 1)
-            rom[rom_init] = 32'h00000013;       // NOP
         $readmemh(ROM_HEX_FILE, rom);
     end
 
