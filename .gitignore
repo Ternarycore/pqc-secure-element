@@ -51,3 +51,9 @@ scripts/**
 opencode.json
 .aider*
 ternarycore-secure/*.gprj
+
+# Gowin project files — only pqc-secure-element.gprj in root is tracked
+ternarycore-secure/*.gprj
+*.gprj.user
+impl/
+pqc-secure-element/

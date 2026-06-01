@@ -18,12 +18,12 @@
         <UseModeAsGPIO>true</UseModeAsGPIO>
     </Options>
     <FileList>
-        <File path="rtl/ternary_mac.v" type="verilog"/>
         <File path="rtl/barrett_reduce.v" type="verilog"/>
-        <File path="rtl/ternary_poly_mul.v" type="verilog"/>
         <File path="rtl/picorv32.v" type="verilog"/>
-        <File path="rtl/wb_uart.v" type="verilog"/>
+        <File path="rtl/ternary_mac.v" type="verilog"/>
+        <File path="rtl/ternary_poly_mul.v" type="verilog"/>
         <File path="rtl/top.v" type="verilog"/>
+        <File path="rtl/wb_uart.v" type="verilog"/>
     </FileList>
     <ConstraintList>
         <File path="constr/tangnano.cst" type="cst"/>
