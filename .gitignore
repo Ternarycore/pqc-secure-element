@@ -1,16 +1,35 @@
-# Gowin IDE — project output and IDE-managed source copies
+# Gowin IDE — IDE-managed source copies and build intermediates.
+#
+# NOTE: impl/ is deliberately NOT excluded any more. Synthesis and
+# place-and-route REPORTS are the evidence behind every resource, timing
+# and latch number this project claims, and they belong in version control
+# alongside the numbers. Committed reports live in reports/.
+# What stays ignored below is build *intermediates* (netlists, databases,
+# bitstreams), not reports.
+
 *.gprj.user
-impl/
+
 # The IDE creates a ternarycore-secure/ subfolder with src/ copies of rtl/ files
-# and its own impl/ + temp/ build dirs — none of these belong in source control.
+# and its own temp/ build dir — none of these belong in source control.
 # Exception: ternarycore-secure.cst must be tracked so constraints survive a clone.
 # Exception: ternarycore-secure/firmware/ is excluded (copy made by scripts/setup_gowin_project.sh).
 ternarycore-secure/src/*
 !ternarycore-secure/src/ternarycore-secure.cst
-ternarycore-secure/impl/
 ternarycore-secure/temp/
 ternarycore-secure/firmware/
 ternarycore-secure_process_config.json
+
+# Synthesis/PnR intermediates — large, regenerable, not evidence.
+# Reports (*.rpt.txt, *.rpt.html, *_tr_*.html, *.power.html) are NOT ignored.
+impl/**/*.vg
+impl/**/*.vm
+impl/**/*.vo
+impl/**/*.vr
+impl/**/*.db
+impl/**/*.bin
+impl/**/*.binx
+impl/**/*.fs
+impl/gwsynthesis/*.v
 *.vg
 *.vm
 *.vo
@@ -50,10 +69,7 @@ scripts/**
 .env*
 opencode.json
 .aider*
-ternarycore-secure/*.gprj
 
 # Gowin project files — only pqc-secure-element.gprj in root is tracked
 ternarycore-secure/*.gprj
-*.gprj.user
-impl/
 pqc-secure-element/
